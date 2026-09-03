@@ -56,3 +56,44 @@ create policy "delete_own_marcacoes"
 -- Depois de rodar: vá em Authentication > Providers e confirme que "Email"
 -- está habilitado (é o padrão). Para testes rápidos, em Authentication >
 -- Settings você pode desabilitar "Confirm email" para não depender de SMTP.
+
+-- =========================================================
+-- Banco de Horas — histórico oficial extraído dos PDFs do RH
+-- Rode este bloco também no SQL Editor (pode ser na mesma execução acima)
+-- =========================================================
+
+create table if not exists public.banco_horas_dias (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  data          date not null,
+  saldo_minutos integer not null default 0, -- positivo = crédito, negativo = débito
+  tipo          text, -- 'Crédito' | 'Débito' | 'Ímpar' | 'Falta' | null (dia neutro)
+  updated_at    timestamptz not null default now(),
+  unique (user_id, data)
+);
+
+create index if not exists banco_horas_dias_user_data_idx
+  on public.banco_horas_dias (user_id, data);
+
+alter table public.banco_horas_dias enable row level security;
+
+drop policy if exists "select_own_banco_horas" on public.banco_horas_dias;
+create policy "select_own_banco_horas"
+  on public.banco_horas_dias for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "upsert_own_banco_horas" on public.banco_horas_dias;
+create policy "upsert_own_banco_horas"
+  on public.banco_horas_dias for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "update_own_banco_horas" on public.banco_horas_dias;
+create policy "update_own_banco_horas"
+  on public.banco_horas_dias for update
+  using (auth.uid() = user_id);
+
+drop policy if exists "delete_own_banco_horas" on public.banco_horas_dias;
+create policy "delete_own_banco_horas"
+  on public.banco_horas_dias for delete
+  using (auth.uid() = user_id);
+

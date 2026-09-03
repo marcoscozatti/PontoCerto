@@ -73,6 +73,7 @@ function navigate(view) {
   }
   if (view === 'profile') loadProfileForm();
   if (view === 'schedule') loadScheduleForm();
+  if (view === 'bankhours') loadBankHoursDashboard();
 }
 
 document.querySelectorAll('[data-nav]').forEach(el => {
@@ -277,6 +278,112 @@ document.getElementById('schedule-save-btn').addEventListener('click', async () 
   currentProfile.schedule = schedule;
   showToast('Escala salva!', 'success');
 });
+
+// ---------- banco de horas (dashboard) ----------
+
+let bankHoursChartInstance = null;
+
+async function loadBankHoursDashboard() {
+  const { data, error } = await supabaseClient
+    .from('banco_horas_dias')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .order('data', { ascending: true });
+
+  const emptyEl = document.getElementById('bh-empty');
+  const contentEl = document.getElementById('bh-content');
+
+  if (error) { showToast('Erro ao carregar Banco de Horas: ' + error.message, 'error'); return; }
+
+  if (!data || data.length === 0) {
+    emptyEl.classList.remove('d-none');
+    contentEl.classList.add('d-none');
+    return;
+  }
+  emptyEl.classList.add('d-none');
+  contentEl.classList.remove('d-none');
+
+  // Saldo total e período
+  const totalMinutos = data.reduce((sum, d) => sum + d.saldo_minutos, 0);
+  const saldoEl = document.getElementById('bh-saldo-total');
+  saldoEl.textContent = formatMinutesAsHours(totalMinutos);
+  saldoEl.style.color = totalMinutos < 0 ? '#FF9C9C' : '#fff';
+
+  const primeiraData = formatDateBR(data[0].data);
+  const ultimaData = formatDateBR(data[data.length - 1].data);
+  document.getElementById('bh-periodo').textContent = `Período: ${primeiraData} a ${ultimaData} (${data.length} dia(s) com saldo)`;
+
+  // Gráfico: saldo acumulado ao longo do tempo
+  let acumulado = 0;
+  const chartLabels = [];
+  const chartValues = [];
+  data.forEach(d => {
+    acumulado += d.saldo_minutos;
+    chartLabels.push(formatDateBR(d.data));
+    chartValues.push(Math.round(acumulado / 60 * 100) / 100); // em horas, 2 casas
+  });
+
+  const ctx = document.getElementById('bh-chart').getContext('2d');
+  if (bankHoursChartInstance) bankHoursChartInstance.destroy();
+  bankHoursChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartLabels,
+      datasets: [{
+        label: 'Saldo acumulado (h)',
+        data: chartValues,
+        borderColor: '#6B1650',
+        backgroundColor: 'rgba(107,22,80,0.08)',
+        fill: true,
+        tension: 0.25,
+        pointRadius: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6, font: { size: 10 } } },
+        y: { ticks: { font: { size: 10 } }, title: { display: true, text: 'horas' } }
+      }
+    }
+  });
+
+  // Maiores créditos e débitos
+  const creditos = data.filter(d => d.saldo_minutos > 0).sort((a, b) => b.saldo_minutos - a.saldo_minutos).slice(0, 5);
+  const debitos = data.filter(d => d.saldo_minutos < 0).sort((a, b) => a.saldo_minutos - b.saldo_minutos).slice(0, 5);
+
+  const renderTopList = (list, elId) => {
+    const el = document.getElementById(elId);
+    if (list.length === 0) { el.innerHTML = `<p class="small text-secondary mb-0">Nenhum</p>`; return; }
+    el.innerHTML = list.map(d => `
+      <div class="d-flex justify-content-between small mb-1">
+        <span>${formatDateBR(d.data)}</span>
+        <span class="fw-semibold">${formatMinutesAsHours(d.saldo_minutos)}</span>
+      </div>`).join('');
+  };
+  renderTopList(creditos, 'bh-top-creditos');
+  renderTopList(debitos, 'bh-top-debitos');
+
+  // Resumo por mês
+  const byMonth = {};
+  data.forEach(d => {
+    const key = d.data.slice(0, 7); // 'YYYY-MM'
+    byMonth[key] = (byMonth[key] || 0) + d.saldo_minutos;
+  });
+  let running = 0;
+  const monthlyBody = document.getElementById('bh-monthly-body');
+  monthlyBody.innerHTML = Object.keys(byMonth).sort().map(key => {
+    const [y, m] = key.split('-').map(Number);
+    running += byMonth[key];
+    return `
+      <tr>
+        <td>${MONTHS[m - 1]}/${y}</td>
+        <td>${formatMinutesAsHours(byMonth[key])}</td>
+        <td class="fw-semibold">${formatMinutesAsHours(running)}</td>
+      </tr>`;
+  }).join('');
+}
 
 
 
@@ -618,6 +725,13 @@ function renderCalDayEntries(entries) {
 function timeToMinutes(t) {
   const [h, m, s] = t.split(':').map(Number);
   return h * 60 + m + (s || 0) / 60;
+}
+
+function parseSaldoToMinutes(saldoStr) {
+  const match = saldoStr.trim().match(/^(-)?(\d{1,3}):(\d{2})$/);
+  if (!match) return 0;
+  const total = Number(match[2]) * 60 + Number(match[3]);
+  return match[1] ? -total : total;
 }
 
 function formatMinutesAsHours(min) {
@@ -982,6 +1096,28 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
       })
       .sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.day - b.day));
 
+    // Importa o saldo de TODOS os dias do PDF (não só Débito) para o Banco de Horas.
+    const bancoHorasRows = Object.keys(rowsMap)
+      .filter(dateBR => rowsMap[dateBR].saldoValue)
+      .map(dateBR => {
+        const [d, m, y2] = dateBR.split('/').map(Number);
+        const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        return {
+          user_id: currentUser.id,
+          data: dataISO,
+          saldo_minutos: parseSaldoToMinutes(rowsMap[dateBR].saldoValue),
+          tipo: rowsMap[dateBR].justificarLabel || null
+        };
+      });
+
+    let bancoHorasImportError = null;
+    if (bancoHorasRows.length > 0) {
+      const { error: bhError } = await supabaseClient
+        .from('banco_horas_dias')
+        .upsert(bancoHorasRows, { onConflict: 'user_id,data' });
+      bancoHorasImportError = bhError;
+    }
+
     let statusMsg = filledMotivo.length > 0
       ? `Motivo preenchido em: ${filledMotivo.join(', ')}.`
       : 'Nenhum Motivo foi preenchido automaticamente.';
@@ -993,6 +1129,11 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     }
     if (lastDebitoDays.length > 0) {
       statusMsg += ` ${lastDebitoDays.length} dia(s) de Débito identificado(s) — já disponíveis para a Carta de Compensação abaixo.`;
+    }
+    if (bancoHorasImportError) {
+      statusMsg += ` Atenção: não foi possível atualizar o Banco de Horas (${bancoHorasImportError.message}).`;
+    } else if (bancoHorasRows.length > 0) {
+      statusMsg += ` Banco de Horas atualizado com ${bancoHorasRows.length} dia(s).`;
     }
     status.textContent = statusMsg;
     showToast('PDF processado!', 'success');

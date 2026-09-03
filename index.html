@@ -110,6 +110,14 @@
         </div>
         <i class="bi bi-chevron-right ms-auto text-secondary"></i>
       </div>
+      <div class="menu-tile" data-nav="bankhours">
+        <div class="icon-badge"><i class="bi bi-graph-up-arrow fs-5"></i></div>
+        <div>
+          <p class="tile-title">Banco de Horas</p>
+          <p class="tile-sub">Saldo, histórico e tendência</p>
+        </div>
+        <i class="bi bi-chevron-right ms-auto text-secondary"></i>
+      </div>
 
       <div class="text-center mt-4">
         <button class="btn btn-link text-decoration-none text-secondary" id="logout-btn">
@@ -496,6 +504,66 @@
     </div>
   </div>
 
+  <!-- ===================== BANCO DE HORAS ===================== -->
+  <div id="view-bankhours" class="view">
+    <div class="app-header">
+      <div class="top-row">
+        <button class="back-btn" data-nav="home"><i class="bi bi-arrow-left"></i></button>
+        <h1>Banco de Horas</h1>
+      </div>
+    </div>
+    <div class="app-content pt-4">
+
+      <div id="bh-empty" class="d-none">
+        <div class="empty-state">
+          <div class="icon-badge"><i class="bi bi-graph-up-arrow fs-4"></i></div>
+          <p class="fw-semibold mb-1">Ainda sem histórico</p>
+          <p class="small">Processe um PDF do RH no Relatório Mensal — os dados de saldo de
+          cada dia são importados automaticamente pra cá.</p>
+        </div>
+      </div>
+
+      <div id="bh-content" class="d-none">
+        <div class="summary-banner mb-3">
+          <p class="mb-1 small opacity-75">Saldo atual (banco de horas)</p>
+          <h2 id="bh-saldo-total" class="mb-0">—</h2>
+          <p class="small opacity-75 mb-0" id="bh-periodo">—</p>
+        </div>
+
+        <div class="card-block">
+          <h3 class="h6 fw-bold mb-2">Evolução do saldo</h3>
+          <canvas id="bh-chart" height="180"></canvas>
+        </div>
+
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <div class="card-block h-100 mb-0">
+              <h3 class="h6 fw-bold mb-2" style="color:var(--ok)">Maiores créditos</h3>
+              <div id="bh-top-creditos"></div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="card-block h-100 mb-0">
+              <h3 class="h6 fw-bold mb-2" style="color:var(--danger)">Maiores débitos</h3>
+              <div id="bh-top-debitos"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-block px-0 pt-0" style="overflow-x:auto">
+          <h3 class="h6 fw-bold px-3 pt-3 mb-2">Resumo por mês</h3>
+          <table class="report-table" id="bh-monthly-table">
+            <thead>
+              <tr><th>Mês</th><th>Saldo do mês</th><th>Saldo acumulado</th></tr>
+            </thead>
+            <tbody id="bh-monthly-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- ===================== RELATÓRIO MENSAL ===================== -->
   <div id="view-report" class="view">
     <div class="app-header">
@@ -575,8 +643,9 @@
           automaticamente no campo Motivo. Nos dias marcados como "Ímpar", o app reconstrói a
           sequência completa do dia (entrada, saída/retorno de intervalo e saída final) usando
           o intervalo definido na sua <strong>Escala de Trabalho</strong> para aquele dia da
-          semana, e preenche nas colunas 1ªMar a 8ªMar. Nada é enviado a nenhum servidor — o
-          processamento acontece só no seu navegador.
+          semana, e preenche nas colunas 1ªMar a 8ªMar. O saldo do dia de cada linha também é
+          importado para o <strong>Banco de Horas</strong>. Nada é enviado a nenhum servidor
+          além do Supabase — o processamento do PDF acontece só no seu navegador.
         </p>
         <input type="file" accept="application/pdf" class="form-control mb-2" id="pdf-upload-input">
         <button class="btn-wine mb-2" id="pdf-process-btn" style="width:100%">
@@ -675,6 +744,7 @@
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/supabase-config.js"></script>
 <script src="js/app.js"></script>

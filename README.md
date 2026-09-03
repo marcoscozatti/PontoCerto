@@ -116,3 +116,18 @@ login. Para funcionar, é preciso configurar em dois lugares:
 
 Sem essa configuração, o botão aparece mas mostra um erro ao clicar — o login
 por e-mail/senha continua funcionando normalmente enquanto isso.
+
+## Banco de Horas (Dashboard)
+
+Toda vez que você processa um PDF do RH no Relatório Mensal, o saldo de cada
+dia (positivo, negativo ou neutro) é importado automaticamente para uma nova
+tabela no Supabase (`banco_horas_dias`). A tela **Banco de Horas** (no menu
+principal) mostra:
+- Saldo atual acumulado, em destaque
+- Gráfico de evolução do saldo ao longo do tempo
+- Os 5 maiores créditos e os 5 maiores débitos
+- Resumo mês a mês, com saldo do mês e saldo acumulado
+
+**Importante:** rode o bloco novo do `sql/schema.sql` (tabela
+`banco_horas_dias`) no SQL Editor do Supabase antes de usar essa tela, caso
+seu projeto já existisse antes dessa atualização.
