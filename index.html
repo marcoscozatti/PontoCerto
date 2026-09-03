@@ -530,6 +530,14 @@
           <p class="small opacity-75 mb-0" id="bh-periodo">—</p>
         </div>
 
+        <p class="small text-secondary mb-3">
+          Dias marcados como "Ímpar" no PDF (marcação esquecida) são recalculados pelo
+          PontoCerto usando a sequência de horários reconstruída e sua Escala de Trabalho, em
+          vez do valor bruto do sistema oficial — que costuma vir artificialmente exagerado
+          quando falta uma marcação. Esses dias aparecem com <span class="cat-badge outro">ajustado</span>.
+          O saldo final oficial é sempre o calculado pelo RH.
+        </p>
+
         <div class="card-block">
           <h3 class="h6 fw-bold mb-2">Evolução do saldo</h3>
           <canvas id="bh-chart" height="180"></canvas>

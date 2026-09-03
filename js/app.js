@@ -357,8 +357,8 @@ async function loadBankHoursDashboard() {
     const el = document.getElementById(elId);
     if (list.length === 0) { el.innerHTML = `<p class="small text-secondary mb-0">Nenhum</p>`; return; }
     el.innerHTML = list.map(d => `
-      <div class="d-flex justify-content-between small mb-1">
-        <span>${formatDateBR(d.data)}</span>
+      <div class="d-flex justify-content-between align-items-center small mb-1">
+        <span>${formatDateBR(d.data)} ${d.ajustado ? '<span class="cat-badge outro" style="font-size:0.6rem;padding:1px 6px;">ajustado</span>' : ''}</span>
         <span class="fw-semibold">${formatMinutesAsHours(d.saldo_minutos)}</span>
       </div>`).join('');
   };
@@ -955,6 +955,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     // Usa todas as marcações do usuário, não só as do mês selecionado no seletor do
     // Relatório Mensal — o PDF pode ter um período diferente do que está selecionado ali.
     const monthEntries = allMarcacoes;
+    const correctedSaldoByDate = {}; // dateBR -> minutos corrigidos (dias "Ímpar" recalculados pela Escala)
     const byDay = {};
     monthEntries.forEach(m => { (byDay[m.data] ||= []).push(m); });
 
@@ -1066,6 +1067,24 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           });
 
           filledMarcacoes.push(`${dateBR} (${sequence.join(', ')})`);
+
+          // Recalcula o saldo real do dia usando a sequência reconstruída, em vez do valor
+          // bruto do PDF (que costuma vir artificialmente exagerado em dias "Ímpar", já que
+          // o sistema oficial só enxergou 1 marcação isolada quando calculou aquele número).
+          if (daySchedule && daySchedule.tipo === 'normal' && daySchedule.entrada && daySchedule.saida) {
+            const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+            const scheduledBreak = scheduleHasBreak
+              ? (toMin(daySchedule['intervalo-retorno']) - toMin(daySchedule['intervalo-saida']))
+              : 0;
+            const scheduledWorked = (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
+
+            const actualBreak = scheduleHasBreak
+              ? (toMin(sequence[2]) - toMin(sequence[1]))
+              : 0;
+            const actualWorked = (toMin(saidaTime) - toMin(entradaTime)) - actualBreak;
+
+            correctedSaldoByDate[dateBR] = actualWorked - scheduledWorked;
+          }
         } else {
           pendingManual.push(`${dateBR} (só ${allKnown.length} horário(s) conhecido(s) — registre a marcação que faltou no PontoCerto e reprocesse)`);
         }
@@ -1097,16 +1116,19 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
       .sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.day - b.day));
 
     // Importa o saldo de TODOS os dias do PDF (não só Débito) para o Banco de Horas.
+    // Para dias "Ímpar" que conseguimos recalcular, usamos o valor corrigido em vez do bruto.
     const bancoHorasRows = Object.keys(rowsMap)
-      .filter(dateBR => rowsMap[dateBR].saldoValue)
+      .filter(dateBR => rowsMap[dateBR].saldoValue || correctedSaldoByDate[dateBR] !== undefined)
       .map(dateBR => {
         const [d, m, y2] = dateBR.split('/').map(Number);
         const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const hasCorrection = correctedSaldoByDate[dateBR] !== undefined;
         return {
           user_id: currentUser.id,
           data: dataISO,
-          saldo_minutos: parseSaldoToMinutes(rowsMap[dateBR].saldoValue),
-          tipo: rowsMap[dateBR].justificarLabel || null
+          saldo_minutos: hasCorrection ? correctedSaldoByDate[dateBR] : parseSaldoToMinutes(rowsMap[dateBR].saldoValue),
+          tipo: rowsMap[dateBR].justificarLabel || null,
+          ajustado: hasCorrection
         };
       });
 

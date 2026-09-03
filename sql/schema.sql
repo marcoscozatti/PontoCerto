@@ -68,9 +68,13 @@ create table if not exists public.banco_horas_dias (
   data          date not null,
   saldo_minutos integer not null default 0, -- positivo = crédito, negativo = débito
   tipo          text, -- 'Crédito' | 'Débito' | 'Ímpar' | 'Falta' | null (dia neutro)
+  ajustado      boolean not null default false, -- true = recalculado pelo PontoCerto (dia "Ímpar" corrigido)
   updated_at    timestamptz not null default now(),
   unique (user_id, data)
 );
+
+-- Se a tabela já existia antes desta atualização, rode só esta linha:
+-- alter table public.banco_horas_dias add column if not exists ajustado boolean not null default false;
 
 create index if not exists banco_horas_dias_user_data_idx
   on public.banco_horas_dias (user_id, data);
