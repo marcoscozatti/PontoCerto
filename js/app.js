@@ -411,7 +411,7 @@ async function loadBankHoursDashboard() {
   });
   let running = baselineMinutos;
   const baselineRow = baselineData
-    ? `<tr><td>Saldo inicial (${formatDateBR(baselineData)})</td><td>—</td><td class="fw-semibold">${formatMinutesAsHours(baselineMinutos)}</td></tr>`
+    ? `<tr><td>Saldo inicial (${formatDateBR(baselineData)})</td><td>—</td><td class="fw-semibold">${formatMinutesAsHours(baselineMinutos)}</td><td></td></tr>`
     : '';
   const monthlyBody = document.getElementById('bh-monthly-body');
   monthlyBody.innerHTML = baselineRow + Object.keys(byMonth).sort().map(key => {
@@ -422,8 +422,40 @@ async function loadBankHoursDashboard() {
         <td>${MONTHS[m - 1]}/${y}</td>
         <td>${formatMinutesAsHours(byMonth[key])}</td>
         <td class="fw-semibold">${formatMinutesAsHours(running)}</td>
+        <td><button class="btn btn-sm text-danger p-0" data-purge-month="${key}" title="Expurgar este mês do Banco de Horas"><i class="bi bi-trash"></i></button></td>
       </tr>`;
   }).join('');
+
+  monthlyBody.querySelectorAll('[data-purge-month]').forEach(btn => {
+    btn.addEventListener('click', () => purgeMonthFromBankHours(btn.dataset.purgeMonth));
+  });
+}
+
+async function purgeMonthFromBankHours(monthKey) {
+  const [y, m] = monthKey.split('-').map(Number);
+  const monthLabel = `${MONTHS[m - 1]}/${y}`;
+  const confirmed = confirm(
+    `Apagar os dados de ${monthLabel} do Banco de Horas?\n\n` +
+    `Isso remove só o saldo desse mês do cálculo aqui no dashboard — não afeta o Histórico ` +
+    `do PontoCerto nem nenhum PDF. Você pode reprocessar o PDF desse mês depois, se quiser.`
+  );
+  if (!confirmed) return;
+
+  const startDate = `${monthKey}-01`;
+  const lastDay = new Date(y, m, 0).getDate(); // último dia do mês
+  const endDate = `${monthKey}-${String(lastDay).padStart(2, '0')}`;
+
+  const { error } = await supabaseClient
+    .from('banco_horas_dias')
+    .delete()
+    .eq('user_id', currentUser.id)
+    .gte('data', startDate)
+    .lte('data', endDate);
+
+  if (error) { showToast('Erro ao expurgar: ' + error.message, 'error'); return; }
+
+  showToast(`${monthLabel} removido do Banco de Horas.`, 'success');
+  loadBankHoursDashboard();
 }
 
 
@@ -1181,13 +1213,25 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
       })
       .sort((a, b) => (a.year - b.year) || (a.month - b.month) || (a.day - b.day));
 
-    // Importa o saldo de TODOS os dias do PDF (não só Débito) para o Banco de Horas.
-    // Para dias "Ímpar" que conseguimos recalcular, usamos o valor corrigido em vez do bruto.
+    // Descobre até que dia o PDF tem marcações de verdade (dias com pelo menos 1 horário
+    // oficial batido). Dias depois disso ainda não aconteceram — mesmo que a linha exista no
+    // PDF (mostrando "0:00"), não devem entrar no Banco de Horas como se já tivessem ocorrido.
+    const dateBRToISO = (dateBR) => {
+      const [d, m, y2] = dateBR.split('/').map(Number);
+      return `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    };
+    const diasComMarcacaoReal = Object.keys(rowsMap)
+      .filter(dateBR => rowsMap[dateBR].officialTimes && rowsMap[dateBR].officialTimes.length > 0)
+      .map(dateBRToISO);
+    const ultimoDiaReal = diasComMarcacaoReal.length > 0 ? diasComMarcacaoReal.sort().pop() : null;
+
+    // Importa o saldo de TODOS os dias do PDF até o último dia real (não só Débito) para o
+    // Banco de Horas. Para dias "Ímpar" que conseguimos recalcular, usamos o valor corrigido.
     const bancoHorasRows = Object.keys(rowsMap)
       .filter(dateBR => rowsMap[dateBR].saldoValue || correctedSaldoByDate[dateBR] !== undefined)
-      .map(dateBR => {
-        const [d, m, y2] = dateBR.split('/').map(Number);
-        const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      .map(dateBR => ({ dateBR, dataISO: dateBRToISO(dateBR) }))
+      .filter(({ dataISO }) => !ultimoDiaReal || dataISO <= ultimoDiaReal)
+      .map(({ dateBR, dataISO }) => {
         const hasCorrection = correctedSaldoByDate[dateBR] !== undefined;
         return {
           user_id: currentUser.id,
@@ -1221,7 +1265,8 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     if (bancoHorasImportError) {
       statusMsg += ` Atenção: não foi possível atualizar o Banco de Horas (${bancoHorasImportError.message}).`;
     } else if (bancoHorasRows.length > 0) {
-      statusMsg += ` Banco de Horas atualizado com ${bancoHorasRows.length} dia(s).`;
+      statusMsg += ` Banco de Horas atualizado com ${bancoHorasRows.length} dia(s)`;
+      statusMsg += ultimoDiaReal ? ` (até ${formatDateBR(ultimoDiaReal)}, último dia com marcação no PDF).` : '.';
     }
     status.textContent = statusMsg;
     showToast('PDF processado!', 'success');

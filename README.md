@@ -139,3 +139,18 @@ sistema oficial (RHevolution) mostra numa data específica ("Válido a partir
 de"). O Banco de Horas do PontoCerto passa a somar só os dias processados
 **depois** dessa data em cima desse valor de partida — assim os dois sistemas
 ficam alinhados desde o início, em vez do PontoCerto calcular do zero.
+
+## Prévia de mês em andamento + expurgar mês
+
+Se você processar um PDF de um mês ainda em andamento (ex.: RH gerou o
+relatório de setembro no dia 3, mostrando marcações só até o dia 2), o
+Banco de Horas importa **só até o último dia com marcação real** — dias
+futuros do mês (que aparecem no PDF como "0:00" por ainda não terem
+acontecido) são ignorados, mesmo que a linha exista no PDF. Assim dá pra
+usar o app como prévia do saldo a qualquer momento do mês.
+
+Se algum mês ficou com dado errado no Banco de Horas (por exemplo, antes
+dessa correção), use o ícone de lixeira ao lado de cada mês em "Resumo por
+mês" para removê-lo do dashboard. Isso não apaga nada do Histórico nem do
+PDF — só limpa o cálculo do Banco de Horas, e você pode reprocessar o PDF
+daquele mês depois se quiser.
