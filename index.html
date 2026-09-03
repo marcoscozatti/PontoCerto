@@ -262,6 +262,37 @@
       </div>
 
       <div class="card-block">
+        <h2 class="h6 fw-bold mb-2">Saldo inicial (referência oficial)</h2>
+        <p class="small text-secondary mb-3">
+          Informe o saldo do banco de horas que o sistema oficial (RHevolution) mostra numa
+          data específica. A partir daí, o Banco de Horas do PontoCerto soma só os dias
+          processados <strong>depois</strong> dessa data em cima desse valor — assim os dois
+          ficam alinhados, em vez do PontoCerto começar do zero.
+        </p>
+        <div class="row g-2">
+          <div class="col-12 col-md-4">
+            <label class="form-label">Válido a partir de</label>
+            <input type="date" class="form-control" id="profile-saldo-inicial-data">
+          </div>
+          <div class="col-6 col-md-3">
+            <label class="form-label">Sinal</label>
+            <select class="form-select" id="profile-saldo-inicial-sinal">
+              <option value="positivo">Positivo (+)</option>
+              <option value="negativo">Negativo (−)</option>
+            </select>
+          </div>
+          <div class="col-3 col-md-2">
+            <label class="form-label">Horas</label>
+            <input type="number" min="0" class="form-control" id="profile-saldo-inicial-horas" placeholder="0">
+          </div>
+          <div class="col-3 col-md-3">
+            <label class="form-label">Minutos</label>
+            <input type="number" min="0" max="59" class="form-control" id="profile-saldo-inicial-minutos" placeholder="0">
+          </div>
+        </div>
+      </div>
+
+      <div class="card-block">
         <h2 class="h6 fw-bold mb-3">Trocar senha</h2>
         <div class="mb-3">
           <label class="form-label">Nova senha</label>

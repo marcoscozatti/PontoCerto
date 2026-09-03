@@ -131,3 +131,11 @@ principal) mostra:
 **Importante:** rode o bloco novo do `sql/schema.sql` (tabela
 `banco_horas_dias`) no SQL Editor do Supabase antes de usar essa tela, caso
 seu projeto já existisse antes dessa atualização.
+
+## Saldo inicial (calibração com o sistema oficial)
+
+Em **Minha Conta**, é possível informar o saldo de banco de horas que o
+sistema oficial (RHevolution) mostra numa data específica ("Válido a partir
+de"). O Banco de Horas do PontoCerto passa a somar só os dias processados
+**depois** dessa data em cima desse valor de partida — assim os dois sistemas
+ficam alinhados desde o início, em vez do PontoCerto calcular do zero.

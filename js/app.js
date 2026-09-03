@@ -19,7 +19,7 @@ const DEFAULT_SCHEDULE = {
 };
 
 let currentUser = null;
-let currentProfile = { full_name: '', registro: '', rh_email: '', schedule: null };
+let currentProfile = { full_name: '', registro: '', rh_email: '', schedule: null, saldoInicialMinutos: 0, saldoInicialData: null };
 let allMarcacoes = [];       // cache local do usuário logado
 let selectedTipo = 'entrada';
 let manualTimeEdit = false;
@@ -167,6 +167,8 @@ async function onLoggedIn(user) {
   currentProfile.registro = user.user_metadata?.registro || '';
   currentProfile.rh_email = user.user_metadata?.rh_email || '';
   currentProfile.schedule = user.user_metadata?.schedule || JSON.parse(JSON.stringify(DEFAULT_SCHEDULE));
+  currentProfile.saldoInicialMinutos = user.user_metadata?.saldo_inicial_minutos || 0;
+  currentProfile.saldoInicialData = user.user_metadata?.saldo_inicial_data || null;
   const displayName = currentProfile.full_name || user.user_metadata?.username || user.email.split('@')[0];
   document.getElementById('home-username').textContent = displayName;
   await loadMarcacoes();
@@ -188,6 +190,12 @@ function loadProfileForm() {
   document.getElementById('profile-rh-email').value = currentProfile.rh_email || DEFAULT_RH_EMAIL;
   document.getElementById('profile-new-password').value = '';
   document.getElementById('profile-confirm-password').value = '';
+
+  document.getElementById('profile-saldo-inicial-data').value = currentProfile.saldoInicialData || '';
+  const minutosAbs = Math.abs(currentProfile.saldoInicialMinutos || 0);
+  document.getElementById('profile-saldo-inicial-sinal').value = currentProfile.saldoInicialMinutos < 0 ? 'negativo' : 'positivo';
+  document.getElementById('profile-saldo-inicial-horas').value = Math.floor(minutosAbs / 60);
+  document.getElementById('profile-saldo-inicial-minutos').value = minutosAbs % 60;
 }
 
 document.getElementById('profile-save-btn').addEventListener('click', async () => {
@@ -197,6 +205,13 @@ document.getElementById('profile-save-btn').addEventListener('click', async () =
   const newPassword = document.getElementById('profile-new-password').value;
   const confirmPassword = document.getElementById('profile-confirm-password').value;
 
+  const saldoData = document.getElementById('profile-saldo-inicial-data').value || null;
+  const saldoSinal = document.getElementById('profile-saldo-inicial-sinal').value;
+  const saldoHoras = Number(document.getElementById('profile-saldo-inicial-horas').value) || 0;
+  const saldoMinutosInput = Number(document.getElementById('profile-saldo-inicial-minutos').value) || 0;
+  let saldoInicialMinutos = (saldoHoras * 60 + saldoMinutosInput);
+  if (saldoSinal === 'negativo') saldoInicialMinutos = -saldoInicialMinutos;
+
   if (newPassword || confirmPassword) {
     if (newPassword.length < 6) { showToast('A nova senha deve ter pelo menos 6 caracteres.', 'error'); return; }
     if (newPassword !== confirmPassword) { showToast('As senhas não coincidem.', 'error'); return; }
@@ -205,7 +220,12 @@ document.getElementById('profile-save-btn').addEventListener('click', async () =
   const btn = document.getElementById('profile-save-btn');
   btn.disabled = true;
 
-  const updatePayload = { data: { full_name: fullName, registro: registro, rh_email: rhEmail } };
+  const updatePayload = {
+    data: {
+      full_name: fullName, registro: registro, rh_email: rhEmail,
+      saldo_inicial_minutos: saldoInicialMinutos, saldo_inicial_data: saldoData
+    }
+  };
   if (newPassword) updatePayload.password = newPassword;
 
   const { data, error } = await supabaseClient.auth.updateUser(updatePayload);
@@ -217,6 +237,8 @@ document.getElementById('profile-save-btn').addEventListener('click', async () =
   currentProfile.full_name = fullName;
   currentProfile.registro = registro;
   currentProfile.rh_email = rhEmail;
+  currentProfile.saldoInicialMinutos = saldoInicialMinutos;
+  currentProfile.saldoInicialData = saldoData;
   document.getElementById('home-username').textContent = fullName || currentUser.user_metadata?.username || currentUser.email.split('@')[0];
   document.getElementById('profile-new-password').value = '';
   document.getElementById('profile-confirm-password').value = '';
@@ -284,7 +306,7 @@ document.getElementById('schedule-save-btn').addEventListener('click', async () 
 let bankHoursChartInstance = null;
 
 async function loadBankHoursDashboard() {
-  const { data, error } = await supabaseClient
+  const { data: rawData, error } = await supabaseClient
     .from('banco_horas_dias')
     .select('*')
     .eq('user_id', currentUser.id)
@@ -295,7 +317,14 @@ async function loadBankHoursDashboard() {
 
   if (error) { showToast('Erro ao carregar Banco de Horas: ' + error.message, 'error'); return; }
 
-  if (!data || data.length === 0) {
+  const baselineData = currentProfile.saldoInicialData;
+  const baselineMinutos = currentProfile.saldoInicialMinutos || 0;
+
+  // Só soma dias processados DEPOIS da data de referência do saldo inicial, pra não contar
+  // duas vezes o que já está embutido nesse valor de partida.
+  const data = (rawData || []).filter(d => !baselineData || d.data > baselineData);
+
+  if (data.length === 0 && !baselineData) {
     emptyEl.classList.remove('d-none');
     contentEl.classList.add('d-none');
     return;
@@ -304,19 +333,28 @@ async function loadBankHoursDashboard() {
   contentEl.classList.remove('d-none');
 
   // Saldo total e período
-  const totalMinutos = data.reduce((sum, d) => sum + d.saldo_minutos, 0);
+  const totalMinutos = baselineMinutos + data.reduce((sum, d) => sum + d.saldo_minutos, 0);
   const saldoEl = document.getElementById('bh-saldo-total');
   saldoEl.textContent = formatMinutesAsHours(totalMinutos);
   saldoEl.style.color = totalMinutos < 0 ? '#FF9C9C' : '#fff';
 
-  const primeiraData = formatDateBR(data[0].data);
-  const ultimaData = formatDateBR(data[data.length - 1].data);
-  document.getElementById('bh-periodo').textContent = `Período: ${primeiraData} a ${ultimaData} (${data.length} dia(s) com saldo)`;
+  let periodoTexto = '';
+  if (data.length > 0) {
+    periodoTexto = `Período: ${formatDateBR(data[0].data)} a ${formatDateBR(data[data.length - 1].data)} (${data.length} dia(s) com saldo)`;
+  }
+  if (baselineData) {
+    periodoTexto = `Saldo inicial de ${formatMinutesAsHours(baselineMinutos)} em ${formatDateBR(baselineData)}` + (periodoTexto ? ` + ${periodoTexto}` : '');
+  }
+  document.getElementById('bh-periodo').textContent = periodoTexto || '—';
 
-  // Gráfico: saldo acumulado ao longo do tempo
-  let acumulado = 0;
+  // Gráfico: saldo acumulado ao longo do tempo (começando do saldo inicial, se houver)
+  let acumulado = baselineMinutos;
   const chartLabels = [];
   const chartValues = [];
+  if (baselineData) {
+    chartLabels.push(formatDateBR(baselineData));
+    chartValues.push(Math.round(acumulado / 60 * 100) / 100);
+  }
   data.forEach(d => {
     acumulado += d.saldo_minutos;
     chartLabels.push(formatDateBR(d.data));
@@ -371,9 +409,12 @@ async function loadBankHoursDashboard() {
     const key = d.data.slice(0, 7); // 'YYYY-MM'
     byMonth[key] = (byMonth[key] || 0) + d.saldo_minutos;
   });
-  let running = 0;
+  let running = baselineMinutos;
+  const baselineRow = baselineData
+    ? `<tr><td>Saldo inicial (${formatDateBR(baselineData)})</td><td>—</td><td class="fw-semibold">${formatMinutesAsHours(baselineMinutos)}</td></tr>`
+    : '';
   const monthlyBody = document.getElementById('bh-monthly-body');
-  monthlyBody.innerHTML = Object.keys(byMonth).sort().map(key => {
+  monthlyBody.innerHTML = baselineRow + Object.keys(byMonth).sort().map(key => {
     const [y, m] = key.split('-').map(Number);
     running += byMonth[key];
     return `
@@ -1038,15 +1079,36 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           const scheduleHasBreak = daySchedule && daySchedule.tipo === 'normal'
             && daySchedule['intervalo-saida'] && daySchedule['intervalo-retorno'];
 
-          let sequence;
-          if (scheduleHasBreak) {
-            // A escala da pessoa já define os horários exatos do intervalo daquele dia —
-            // usamos esses valores diretamente, sem aplicar nenhuma regra genérica por cima.
-            sequence = [entradaTime, daySchedule['intervalo-saida'], daySchedule['intervalo-retorno'], saidaTime];
-          } else {
-            sequence = [entradaTime, saidaTime];
-            if (!daySchedule || daySchedule.tipo !== 'normal') {
-              pendingManual.push(`${dateBR} (configure a Escala de Trabalho desse dia da semana para completar o intervalo automaticamente, se houver)`);
+          let sequence = null;
+          let usedRealBreak = false;
+          let irregularPattern = false;
+
+          if (allKnown.length === 4) {
+            // Já temos 4 horários realmente observados (oficial + PontoCerto) — usamos eles
+            // diretamente, em vez de supor o intervalo da Escala, que pode não bater com o
+            // que aconteceu de fato num dia atípico (viagem, evento externo, etc.).
+            const gapMin = allKnown[2].mins - allKnown[1].mins;
+            if (gapMin >= 10 && gapMin <= 180) {
+              sequence = allKnown.map(k => k.t);
+              usedRealBreak = true;
+            } else {
+              irregularPattern = true; // buraco não parece um intervalo normal
+            }
+          }
+
+          if (!sequence) {
+            if (scheduleHasBreak && allKnown.length === 2) {
+              // Só 2 marcações conhecidas: a Escala é o melhor palpite disponível pro intervalo.
+              sequence = [entradaTime, daySchedule['intervalo-saida'], daySchedule['intervalo-retorno'], saidaTime];
+            } else {
+              sequence = [entradaTime, saidaTime];
+              if (!daySchedule || daySchedule.tipo !== 'normal') {
+                pendingManual.push(`${dateBR} (configure a Escala de Trabalho desse dia da semana para completar o intervalo automaticamente, se houver)`);
+              } else if (irregularPattern) {
+                pendingManual.push(`${dateBR} (padrão de marcações incomum — confira manualmente antes de confiar no saldo/preenchimento automático)`);
+              } else if (allKnown.length !== 2) {
+                pendingManual.push(`${dateBR} (${allKnown.length} horários conhecidos, fora do padrão esperado — usando só entrada/saída; confira manualmente)`);
+              }
             }
           }
 
@@ -1071,14 +1133,18 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           // Recalcula o saldo real do dia usando a sequência reconstruída, em vez do valor
           // bruto do PDF (que costuma vir artificialmente exagerado em dias "Ímpar", já que
           // o sistema oficial só enxergou 1 marcação isolada quando calculou aquele número).
-          if (daySchedule && daySchedule.tipo === 'normal' && daySchedule.entrada && daySchedule.saida) {
+          // Só fazemos isso quando o padrão de marcações é confiável; em dias atípicos onde
+          // não arriscamos um palpite de intervalo, mantemos o valor bruto do PDF.
+          const trustworthy = daySchedule && daySchedule.tipo === 'normal' && daySchedule.entrada && daySchedule.saida
+            && !irregularPattern;
+          if (trustworthy) {
             const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const scheduledBreak = scheduleHasBreak
               ? (toMin(daySchedule['intervalo-retorno']) - toMin(daySchedule['intervalo-saida']))
               : 0;
             const scheduledWorked = (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
 
-            const actualBreak = scheduleHasBreak
+            const actualBreak = sequence.length === 4
               ? (toMin(sequence[2]) - toMin(sequence[1]))
               : 0;
             const actualWorked = (toMin(saidaTime) - toMin(entradaTime)) - actualBreak;
