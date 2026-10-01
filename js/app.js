@@ -1291,31 +1291,20 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
 // ---------- carta de compensação de horas (Excel) ----------
 
 let xlsxDownloadUrl = null;
+const CARTA_MODELO_PATH = 'assets/carta_compensacao_modelo.xlsx';
 
 function clearXlsxState() {
   if (xlsxDownloadUrl) { URL.revokeObjectURL(xlsxDownloadUrl); xlsxDownloadUrl = null; }
-  const input = document.getElementById('xlsx-upload-input');
   const link = document.getElementById('xlsx-download-link');
   const status = document.getElementById('xlsx-status');
-  if (input) input.value = '';
   if (link) link.classList.add('d-none');
   if (status) status.textContent = '';
 }
 
-document.getElementById('xlsx-upload-input').addEventListener('change', () => {
-  const link = document.getElementById('xlsx-download-link');
-  const status = document.getElementById('xlsx-status');
-  link.classList.add('d-none');
-  if (xlsxDownloadUrl) { URL.revokeObjectURL(xlsxDownloadUrl); xlsxDownloadUrl = null; }
-  status.textContent = '';
-});
-
 document.getElementById('xlsx-process-btn').addEventListener('click', async () => {
-  const fileInput = document.getElementById('xlsx-upload-input');
   const status = document.getElementById('xlsx-status');
   const link = document.getElementById('xlsx-download-link');
 
-  if (!fileInput.files.length) { showToast('Selecione o arquivo Excel modelo primeiro.', 'error'); return; }
   if (lastDebitoDays.length === 0) {
     showToast('Processe o PDF do RH acima primeiro, para identificarmos os dias de Débito.', 'error');
     return;
@@ -1325,12 +1314,14 @@ document.getElementById('xlsx-process-btn').addEventListener('click', async () =
     return;
   }
 
-  const file = fileInput.files[0];
   status.textContent = 'Preenchendo a planilha...';
   link.classList.add('d-none');
 
   try {
-    const arrayBuffer = await file.arrayBuffer();
+    const response = await fetch(CARTA_MODELO_PATH);
+    if (!response.ok) throw new Error('Não encontrei o modelo embutido (' + CARTA_MODELO_PATH + ').');
+    const arrayBuffer = await response.arrayBuffer();
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
     const ws = workbook.worksheets[0];
@@ -1375,8 +1366,6 @@ document.getElementById('xlsx-process-btn').addEventListener('click', async () =
     }
     status.textContent = msg;
     showToast('Carta gerada!', 'success');
-
-    fileInput.value = '';
   } catch (err) {
     console.error(err);
     status.textContent = '';

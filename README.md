@@ -154,3 +154,10 @@ dessa correção), use o ícone de lixeira ao lado de cada mês em "Resumo por
 mês" para removê-lo do dashboard. Isso não apaga nada do Histórico nem do
 PDF — só limpa o cálculo do Banco de Horas, e você pode reprocessar o PDF
 daquele mês depois se quiser.
+
+## Modelo da Carta de Compensação embutido
+
+A planilha modelo (`assets/carta_compensacao_modelo.xlsx`) agora vem junto
+com o app — não é mais preciso fazer upload dela toda vez. Se um dia o RH
+mudar o layout da planilha, é só substituir esse arquivo (mesmo nome, mesma
+pasta) pela nova versão e fazer o `git push`.
