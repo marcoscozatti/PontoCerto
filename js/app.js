@@ -1160,9 +1160,9 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
               if (!daySchedule || daySchedule.tipo !== 'normal') {
                 pendingManual.push(`${dateBR} (configure a Escala de Trabalho desse dia da semana para completar o intervalo automaticamente, se houver)`);
               } else if (irregularPattern) {
-                pendingManual.push(`${dateBR} (padrão de marcações incomum — confira manualmente antes de confiar no saldo/preenchimento automático)`);
+                pendingManual.push(`${dateBR} (padrão de marcações incomum — horários encontrados: ${allKnown.map(k => k.t).join(', ')} — confira manualmente)`);
               } else if (allKnown.length !== 2) {
-                pendingManual.push(`${dateBR} (${allKnown.length} horários conhecidos, fora do padrão esperado — usando só entrada/saída; confira manualmente)`);
+                pendingManual.push(`${dateBR} (${allKnown.length} horários conhecidos: ${allKnown.map(k => k.t).join(', ')} — fora do padrão esperado, usando só entrada/saída; confira manualmente)`);
               }
             }
           }
