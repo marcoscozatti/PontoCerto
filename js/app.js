@@ -969,7 +969,7 @@ async function extractPdfRowMap(arrayBuffer) {
           const y2 = it.transform[5];
           const x2 = it.transform[4];
           return Math.abs(y2 - y) < 3
-            && marcacoesColStart !== null && x2 >= marcacoesColStart - 2
+            && x2 >= dIt.transform[4] + 50 // depois das colunas Data e dia da semana (o título "Marcações" fica no meio da coluna, não no começo)
             && x2 < marcacoesColEnd
             && /\d{2}:\d{2}/.test(it.str);
         })
