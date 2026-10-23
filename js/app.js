@@ -1102,7 +1102,9 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     Object.keys(rowsMap)
       .filter(dateBR => rowsMap[dateBR].marColumns.length > 0
         && (rowsMap[dateBR].justificarLabel === 'Ímpar'
-            || ((rowsMap[dateBR].officialTimes || []).length > 0 && extraTimesFor(dateBR).length > 0)))
+            || ((rowsMap[dateBR].officialTimes || []).length > 0 && extraTimesFor(dateBR).length > 0)
+            // "Falta" sem nenhuma marcação do relógio (ex.: sistema fora do ar), mas com marcações no PontoCerto
+            || (rowsMap[dateBR].justificarLabel === 'Falta' && (rowsMap[dateBR].officialTimes || []).length === 0 && extraTimesFor(dateBR).length > 0)))
       .forEach(dateBR => {
         const row = rowsMap[dateBR];
         const page = pages[row.page - 1];
@@ -1111,7 +1113,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
         const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const pontoCertoTimes = (byDay[dataISO] || []).map(mk => mk.horario.slice(0, 5));
 
-        const isImpar = row.justificarLabel === 'Ímpar';
+        const isImpar = row.justificarLabel === 'Ímpar' || row.officialTimes.length === 0; // sem horário oficial: usa só o PontoCerto
         const officialM = row.officialTimes.map(toMinsGlobal);
         const unionTimes = isImpar
           ? [...new Set([...row.officialTimes, ...pontoCertoTimes])]
