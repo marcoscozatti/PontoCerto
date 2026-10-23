@@ -971,9 +971,10 @@ async function extractPdfRowMap(arrayBuffer) {
           return Math.abs(y2 - y) < 3
             && marcacoesColStart !== null && x2 >= marcacoesColStart - 2
             && x2 < marcacoesColEnd
-            && /^\d{2}:\d{2}$/.test(it.str.trim());
+            && /\d{2}:\d{2}/.test(it.str);
         })
-        .map(it => it.str.trim());
+        // um mesmo item de texto do PDF pode juntar vários horários ("10:07 17:30"): pega todos
+        .flatMap(it => it.str.match(/\d{2}:\d{2}/g) || []);
 
       rowsMap[dateStr] = {
         page: p,
