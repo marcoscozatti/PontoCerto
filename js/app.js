@@ -1027,6 +1027,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
 
     // Usa todas as marcações do usuário, não só as do mês selecionado no seletor do
     // Relatório Mensal — o PDF pode ter um período diferente do que está selecionado ali.
+    await loadMarcacoes(); // recarrega do banco: pega marcações lançadas depois do login
     const monthEntries = allMarcacoes;
     const correctedSaldoByDate = {}; // dateBR -> minutos corrigidos (dias "Ímpar" recalculados pela Escala)
     const byDay = {};
