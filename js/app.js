@@ -1151,6 +1151,13 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
             }
           }
 
+          // Dia que o RH NÃO marcou como "Ímpar": só mexemos quando os horários do PontoCerto
+          // completam intervalos de forma coerente (pares válidos). Caso contrário, não escreve nada.
+          if (!isImpar && !sequence) {
+            pendingManual.push(`${dateBR} (não preenchi: horários do PontoCerto não fecham pares coerentes com os oficiais — encontrados: ${allKnown.map(k => k.t).join(', ')})`);
+            return;
+          }
+
           if (!sequence) {
             if (scheduleHasBreak && allKnown.length === 2) {
               // Só 2 marcações conhecidas: a Escala é o melhor palpite disponível pro intervalo.
