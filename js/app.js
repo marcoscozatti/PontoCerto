@@ -1086,8 +1086,21 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     });
 
     // ---- 2) Preenche 1ªMar..8ªMar com a sequência completa do dia (todas as linhas "Ímpar" do PDF) ----
+    // Também entram dias que o RH NÃO marcou como "Ímpar" mas em que o PontoCerto tem horários
+    // extras (ex.: um intervalo de almoço não batido no relógio) — tolerância de 10 min.
+    const toMinsGlobal = (t) => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; };
+    const extraTimesFor = (dateBR) => {
+      const row = rowsMap[dateBR];
+      const [d, m, y2] = dateBR.split('/').map(Number);
+      const iso = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const officialM = (row.officialTimes || []).map(toMinsGlobal);
+      return [...new Set((byDay[iso] || []).map(mk => mk.horario.slice(0, 5)))]
+        .filter(t => officialM.every(o => Math.abs(o - toMinsGlobal(t)) > 10));
+    };
     Object.keys(rowsMap)
-      .filter(dateBR => rowsMap[dateBR].justificarLabel === 'Ímpar' && rowsMap[dateBR].marColumns.length > 0)
+      .filter(dateBR => rowsMap[dateBR].marColumns.length > 0
+        && (rowsMap[dateBR].justificarLabel === 'Ímpar'
+            || ((rowsMap[dateBR].officialTimes || []).length > 0 && extraTimesFor(dateBR).length > 0)))
       .forEach(dateBR => {
         const row = rowsMap[dateBR];
         const page = pages[row.page - 1];
@@ -1096,7 +1109,12 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
         const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         const pontoCertoTimes = (byDay[dataISO] || []).map(mk => mk.horario.slice(0, 5));
 
-        const allKnown = [...new Set([...row.officialTimes, ...pontoCertoTimes])]
+        const isImpar = row.justificarLabel === 'Ímpar';
+        const officialM = row.officialTimes.map(toMinsGlobal);
+        const unionTimes = isImpar
+          ? [...new Set([...row.officialTimes, ...pontoCertoTimes])]
+          : [...new Set([...row.officialTimes, ...pontoCertoTimes.filter(t => officialM.every(o => Math.abs(o - toMinsGlobal(t)) > 10))])];
+        const allKnown = unionTimes
           .map(t => { const [h, min] = t.split(':').map(Number); return { t, mins: h * 60 + min }; })
           .sort((a, b) => a.mins - b.mins);
 
@@ -1115,12 +1133,17 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           let usedRealBreak = false;
           let irregularPattern = false;
 
-          if (allKnown.length === 4) {
+          if (allKnown.length >= 4 && allKnown.length % 2 === 0) {
             // Já temos 4 horários realmente observados (oficial + PontoCerto) — usamos eles
             // diretamente, em vez de supor o intervalo da Escala, que pode não bater com o
             // que aconteceu de fato num dia atípico (viagem, evento externo, etc.).
-            const gapMin = allKnown[2].mins - allKnown[1].mins;
-            if (gapMin >= 10 && gapMin <= 180) {
+            // cada intervalo = fim de um par e começo do próximo (1→2, 3→4, ...)
+            let gapsOk = true;
+            for (let i = 1; i + 1 < allKnown.length; i += 2) {
+              const g = allKnown[i + 1].mins - allKnown[i].mins;
+              if (g < 10 || g > 180) gapsOk = false;
+            }
+            if (gapsOk) {
               sequence = allKnown.map(k => k.t);
               usedRealBreak = true;
             } else {
@@ -1144,6 +1167,10 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
             }
           }
 
+          const sequenceTruncated = sequence.length > row.marColumns.length;
+          if (sequenceTruncated) {
+            pendingManual.push(`${dateBR} (${sequence.length} horários, mas o PDF só tem ${row.marColumns.length} colunas — os últimos não couberam)`);
+          }
           sequence.slice(0, row.marColumns.length).forEach((timeStr, idx) => {
             const col = row.marColumns[idx];
             const nextX = row.marColumns[idx + 1] ? row.marColumns[idx + 1].x : (row.saldoX || col.x + 40);
@@ -1168,7 +1195,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           // Só fazemos isso quando o padrão de marcações é confiável; em dias atípicos onde
           // não arriscamos um palpite de intervalo, mantemos o valor bruto do PDF.
           const trustworthy = daySchedule && daySchedule.tipo === 'normal' && daySchedule.entrada && daySchedule.saida
-            && !irregularPattern;
+            && !irregularPattern && !sequenceTruncated;
           if (trustworthy) {
             const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
             const scheduledBreak = scheduleHasBreak
@@ -1176,9 +1203,12 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
               : 0;
             const scheduledWorked = (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
 
-            const actualBreak = sequence.length === 4
-              ? (toMin(sequence[2]) - toMin(sequence[1]))
-              : 0;
+            let actualBreak = 0;
+            if (sequence.length >= 4) {
+              for (let i = 1; i + 1 < sequence.length; i += 2) {
+                actualBreak += toMin(sequence[i + 1]) - toMin(sequence[i]);
+              }
+            }
             const actualWorked = (toMin(saidaTime) - toMin(entradaTime)) - actualBreak;
 
             correctedSaldoByDate[dateBR] = actualWorked - scheduledWorked;
