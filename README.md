@@ -76,6 +76,12 @@ Ponto" da Senac (modelo RVE0202R). O app:
   horários que você registrou no PontoCerto mas que não aparecem no relógio
   eletrônico (comparação com tolerância de 10 minutos).
 
+- Também preenche 1ªMar–8ªMar em dias **não** marcados como "Ímpar" quando o
+  PontoCerto tem horários extras que o relógio não registrou (ex.: um almoço
+  não batido). A sequência completa (ex.: 10:07, 12:05, 13:30, 17:30, 18:30,
+  22:42) é escrita na folha e o saldo do dia é recalculado descontando todos
+  os intervalos.
+
 Tudo roda no seu navegador — nada é enviado a nenhum servidor.
 
 ## Carta de Compensação de Horas (Excel)
