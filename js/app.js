@@ -992,6 +992,41 @@ async function extractPdfRowMap(arrayBuffer) {
   return rowsMap;
 }
 
+// Dia com só 2 horários conhecidos (entrada e saída): decide o intervalo a assumir.
+// Regras: até 4h sem intervalo; mais de 4h até 6h = 15 min; acima de 6h usa o intervalo da
+// Escala se ele couber entre entrada e saída (e, se a Escala tem intervalo > 1h e o dia foi
+// mais curto que o da Escala, usa o mínimo legal de 1h); se não couber, mínimo legal de 1h.
+// Retorna { breakTimes: [saida, retorno] | null, assumedBreak: minutos, warning: string | null }
+function planTwoTimeDay(entradaMin, saidaMin, daySchedule) {
+  const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const gross = saidaMin - entradaMin;
+  const hasBreak = daySchedule && daySchedule.tipo === 'normal'
+    && daySchedule['intervalo-saida'] && daySchedule['intervalo-retorno'];
+
+  if (gross <= 360) {
+    return { breakTimes: null, assumedBreak: gross > 240 ? 15 : 0, warning: null, legalRule: true };
+  }
+  if (!hasBreak) return { breakTimes: null, assumedBreak: 0, warning: null, legalRule: false };
+
+  const escSaida = toMin(daySchedule['intervalo-saida']);
+  const escRet = toMin(daySchedule['intervalo-retorno']);
+  const escBreak = escRet - escSaida;
+  const fits = escSaida >= entradaMin && escRet <= saidaMin;
+  const scheduledSpan = (daySchedule.entrada && daySchedule.saida)
+    ? toMin(daySchedule.saida) - toMin(daySchedule.entrada) : null;
+
+  if (!fits) {
+    return { breakTimes: null, assumedBreak: 60, legalRule: true,
+      warning: 'o intervalo da Escala não cabe entre a entrada e a saída desse dia — descontei 1h (mínimo legal) sem escrever horários de intervalo; confira' };
+  }
+  if (escBreak > 60 && scheduledSpan !== null && gross < scheduledSpan) {
+    return { breakTimes: null, assumedBreak: 60, legalRule: true,
+      warning: `dia mais curto que o da Escala — descontei 1h (mínimo legal) em vez dos ${escBreak} min da Escala, sem escrever horários de intervalo; se o intervalo real foi outro, registre as duas marcações dele no PontoCerto` };
+  }
+  return { breakTimes: [daySchedule['intervalo-saida'], daySchedule['intervalo-retorno']], assumedBreak: escBreak, legalRule: false,
+    warning: escBreak > 60 ? `usei o intervalo da Escala (${escBreak} min); se o intervalo real foi outro, registre as duas marcações dele no PontoCerto` : null };
+}
+
 // Palavra por palavra, quebra o texto em linhas que cabem em maxWidth.
 function wrapTextToWidth(text, font, size, maxWidth) {
   const words = text.split(/\s+/);
@@ -1136,6 +1171,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           let sequence = null;
           let usedRealBreak = false;
           let irregularPattern = false;
+          let assumedBreakMin = 0; // intervalo assumido quando só há entrada e saída
 
           if (allKnown.length >= 4 && allKnown.length % 2 === 0) {
             // Já temos 4 horários realmente observados (oficial + PontoCerto) — usamos eles
@@ -1163,9 +1199,14 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           }
 
           if (!sequence) {
-            if (scheduleHasBreak && allKnown.length === 2) {
-              // Só 2 marcações conhecidas: a Escala é o melhor palpite disponível pro intervalo.
-              sequence = [entradaTime, daySchedule['intervalo-saida'], daySchedule['intervalo-retorno'], saidaTime];
+            if (allKnown.length === 2 && (scheduleHasBreak || (allKnown[1].mins - allKnown[0].mins) <= 360)) {
+              // Só 2 marcações conhecidas: regra de intervalo por duração do dia (planTwoTimeDay).
+              const plan = planTwoTimeDay(allKnown[0].mins, allKnown[1].mins, daySchedule);
+              sequence = plan.breakTimes
+                ? [entradaTime, plan.breakTimes[0], plan.breakTimes[1], saidaTime]
+                : [entradaTime, saidaTime];
+              assumedBreakMin = plan.assumedBreak;
+              if (plan.warning) pendingManual.push(`${dateBR} (${plan.warning})`);
             } else {
               sequence = [entradaTime, saidaTime];
               if (!daySchedule || daySchedule.tipo !== 'normal') {
@@ -1214,7 +1255,7 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
               : 0;
             const scheduledWorked = (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
 
-            let actualBreak = 0;
+            let actualBreak = sequence.length >= 4 ? 0 : assumedBreakMin;
             if (sequence.length >= 4) {
               for (let i = 1; i + 1 < sequence.length; i += 2) {
                 actualBreak += toMin(sequence[i + 1]) - toMin(sequence[i]);
