@@ -1291,8 +1291,11 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
             const seqM = sequence.map(toMinsGlobal);
             let overlapsKnownBreak = false, insideWorkedPeriod = false;
             for (let i = 1; i + 1 < seqM.length; i += 2) if (seqM[i] < eR && seqM[i + 1] > eS) overlapsKnownBreak = true;
-            for (let i = 0; i + 1 < seqM.length; i += 2) if (seqM[i] <= eS && seqM[i + 1] >= eR) insideWorkedPeriod = true;
-            if (!overlapsKnownBreak && insideWorkedPeriod) {
+            for (let i = 0; i + 1 < seqM.length; i += 2) if (seqM[i] < eS && seqM[i + 1] > eR) insideWorkedPeriod = true;
+            // Se na descrição de uma marcação do dia você escreveu "sem intervalo" (ou "sem jantar"),
+            // o app NÃO assume o intervalo da Escala nesse dia.
+            const noScheduleBreak = (byDay[dataISO] || []).some(m => /sem\s+(o\s+)?(intervalo|jantar|almo[cç]o)/i.test(m.descricao || ''));
+            if (!overlapsKnownBreak && insideWorkedPeriod && !noScheduleBreak) {
               sequence = [...sequence, daySchedule['intervalo-saida'], daySchedule['intervalo-retorno']]
                 .sort((a, b) => toMinsGlobal(a) - toMinsGlobal(b));
               pendingManual.push(`${dateBR} (incluí o intervalo da Escala ${daySchedule['intervalo-saida']}–${daySchedule['intervalo-retorno']}, que não foi marcado; se não foi assim, ajuste as marcações)`);
