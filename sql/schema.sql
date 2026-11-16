@@ -18,7 +18,8 @@ create table if not exists public.marcacoes (
                 'entrada_antecipada',
                 'saida_antecipada',
                 'atraso',
-                'outro'
+                'outro',
+                'educor'
               )), -- null = sem categoria (marcação normal, sem ocorrência)
   descricao   text,
   origem      text not null default 'web' check (origem in ('web', 'mobile', 'rep', 'manual')),
@@ -101,3 +102,7 @@ create policy "delete_own_banco_horas"
   on public.banco_horas_dias for delete
   using (auth.uid() = user_id);
 
+
+-- Se a tabela marcacoes já existia antes da categoria EDUCOR, rode estas duas linhas:
+-- alter table public.marcacoes drop constraint if exists marcacoes_categoria_check;
+-- alter table public.marcacoes add constraint marcacoes_categoria_check check (categoria in ('entrada_antecipada','saida_antecipada','atraso','outro','educor'));

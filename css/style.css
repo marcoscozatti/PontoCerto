@@ -288,6 +288,7 @@ body {
 .cat-badge.saida_antecipada { background: #FBEEE2; color: #A85A1F; }
 .cat-badge.atraso { background: #FBE7E5; color: var(--danger); }
 .cat-badge.outro { background: #EFE9F5; color: #5B3E8A; }
+.cat-badge.educor { background: #E3EEF8; color: #1F5A8C; }
 .cat-badge.pendente { background: #FDECC8; color: #8A5A00; }
 .cat-badge.enviado { background: #E4F3EC; color: var(--ok); }
 

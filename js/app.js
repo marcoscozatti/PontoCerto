@@ -8,7 +8,8 @@ const CATEGORIA_LABEL = {
   entrada_antecipada: 'Entrada antecipada',
   saida_antecipada: 'Saída antecipada',
   atraso: 'Atraso',
-  outro: 'Outro'
+  outro: 'Outro',
+  educor: 'EDUCOR / dia trabalhado fora do ponto'
 };
 
 const DEFAULT_RH_EMAIL = 'grupojunrh@sp.senac.br';
@@ -1006,6 +1007,11 @@ function planTwoTimeDay(entradaMin, saidaMin, daySchedule) {
   if (gross <= 360) {
     return { breakTimes: null, assumedBreak: gross > 240 ? 15 : 0, warning: null, legalRule: true };
   }
+  const dayIsOff = !daySchedule || daySchedule.tipo !== 'normal' || (!daySchedule.entrada && !daySchedule.saida);
+  if (dayIsOff) {
+    return { breakTimes: null, assumedBreak: 60, legalRule: true,
+      warning: 'dia fora da Escala — descontei 1h de intervalo (mínimo legal); se o intervalo foi outro, registre as duas marcações dele no PontoCerto' };
+  }
   if (!hasBreak) return { breakTimes: null, assumedBreak: 0, warning: null, legalRule: false };
 
   const escSaida = toMin(daySchedule['intervalo-saida']);
@@ -1077,7 +1083,68 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     const pages = pdfLibDoc.getPages();
     const font = await pdfLibDoc.embedFont(PDFLib.StandardFonts.Helvetica);
 
-    Object.keys(byDay).forEach(dataISO => {
+    // ---- 0) Horário do relógio gravado na data errada ----
+    // Ex.: você entrou no sábado às 07:45, mas o relógio gravou na sexta. Se o dia vizinho (X) tem
+    // uma marcação sua que bate (±10 min) com um horário do relógio do dia (Y) em que você NÃO tem
+    // marcações suas, e o relógio de X não tem esse horário, o app entende que o horário de Y
+    // pertence a X: move para X e deixa uma nota no Motivo dos dois dias.
+    const tolMins = (t) => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; };
+    const brToISO = (dBR) => { const [d, m, y2] = dBR.split('/').map(Number); return `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`; };
+    const neighborBR = (dBR, delta) => {
+      const dt = new Date(brToISO(dBR) + 'T12:00:00'); dt.setDate(dt.getDate() + delta);
+      return isoToBRShort(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`);
+    };
+    const autoNotes = {};      // dateBR -> [texto]
+    const ignoredMarks = {};   // dateBR -> Set de horários 'HH:MM' do PontoCerto já casados com o relógio
+    const movedInfo = [];      // mensagens para a tela
+    Object.keys(rowsMap).forEach(yBR => {
+      const y = rowsMap[yBR];
+      if (y.justificarLabel !== 'Ímpar' || !(y.officialTimes || []).length) return;
+      [-1, 1].forEach(delta => {
+        const xBR = neighborBR(yBR, delta);
+        const x = rowsMap[xBR];
+        if (!x) return;
+        (y.officialTimes || []).slice().forEach(t => {
+          // Só considera "gravado na data errada" um horário bem FORA da Escala do dia de origem
+          // (mais de 1h antes da entrada ou depois da saída). Dois dias seguidos que terminam
+          // perto do mesmo horário (ex.: 22:30) são comuns e não devem ser confundidos.
+          const ySched = (currentProfile.schedule || {})[['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][new Date(brToISO(yBR) + 'T12:00:00').getDay()]];
+          if (!ySched || ySched.tipo !== 'normal' || !ySched.entrada || !ySched.saida) return;
+          if (!(tolMins(t) < tolMins(ySched.entrada) - 60 || tolMins(t) > tolMins(ySched.saida) + 60)) return;
+          // se você tem marcação sua nesse mesmo dia perto desse horário, ele é mesmo do dia
+          if ((byDay[brToISO(yBR)] || []).some(m => m.categoria !== 'educor' && Math.abs(tolMins(m.horario.slice(0, 5)) - tolMins(t)) <= 10)) return;
+          const mark = (byDay[brToISO(xBR)] || []).filter(m => m.categoria !== 'educor').map(m => m.horario.slice(0, 5))
+            .find(mt => Math.abs(tolMins(mt) - tolMins(t)) <= 10
+              && (x.officialTimes || []).every(o => Math.abs(tolMins(o) - tolMins(mt)) > 10));
+          if (!mark) return;
+          y.officialTimes = y.officialTimes.filter(o => o !== t);
+          y.movedAway = true;
+          x.officialTimes = [...(x.officialTimes || []), t];
+          (ignoredMarks[xBR] ||= new Set()).add(mark);
+          (autoNotes[yBR] ||= []).push(`horário ${t} gravado pelo relógio nesta data pertence ao dia ${xBR.slice(0, 5)}`);
+          (autoNotes[xBR] ||= []).push(`horário ${t} foi gravado pelo relógio em ${yBR.slice(0, 5)}`);
+          movedInfo.push(`${t} do relógio em ${yBR.slice(0, 5)} foi atribuído ao dia ${xBR.slice(0, 5)}`);
+        });
+      });
+    });
+    // ---- EDUCOR: dia trabalhado em outra unidade sem registro de ponto ----
+    // Uma marcação com a categoria EDUCOR vale pelo DIA (a hora dela é ignorada): o Motivo é preenchido
+    // e o dia é creditado como jornada completa da Escala (saldo 0), se o relógio não tem nada nesse dia.
+    const educorDays = {};
+    Object.keys(byDay).forEach(iso => {
+      if (!byDay[iso].some(m => m.categoria === 'educor')) return;
+      const dBR = isoToBRShort(iso);
+      educorDays[dBR] = true;
+      if (rowsMap[dBR]) rowsMap[dBR].educorDay = true;
+      if (!byDay[iso].some(m => m.categoria === 'educor' && (m.descricao || '').trim())) {
+        (autoNotes[dBR] ||= []).push('EDUCOR: dia trabalhado em outra unidade, sem registro de ponto');
+      }
+    });
+    const pcTimesOf = (dBR) => (byDay[brToISO(dBR)] || []).filter(mk => mk.categoria !== 'educor').map(mk => mk.horario.slice(0, 5))
+      .filter(t => !(ignoredMarks[dBR] && ignoredMarks[dBR].has(t)));
+
+    const dayKeys = [...new Set([...Object.keys(byDay), ...Object.keys(autoNotes).map(brToISO)])];
+    dayKeys.forEach(dataISO => {
       const dateBR = isoToBRShort(dataISO);
       const row = rowsMap[dateBR];
       if (!row) return; // data não encontrada nesse PDF
@@ -1088,9 +1155,9 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
       // ---- 1) Preenche o Motivo (só se essa linha pede justificativa) ----
       if (needsJustification) {
         const descricoes = [...new Set(
-          byDay[dataISO].map(m => (m.descricao || '').trim()).filter(Boolean)
+          (byDay[dataISO] || []).map(m => (m.descricao || '').trim()).filter(Boolean)
         )];
-        const motivoText = descricoes.join('; ');
+        const motivoText = [...descricoes, ...(autoNotes[dateBR] || [])].join('; ');
 
         if (motivoText && row.writeStartX !== null) {
           const pageWidth = page.getWidth();
@@ -1128,10 +1195,8 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
     const toMinsGlobal = (t) => { const [h, mi] = t.split(':').map(Number); return h * 60 + mi; };
     const extraTimesFor = (dateBR) => {
       const row = rowsMap[dateBR];
-      const [d, m, y2] = dateBR.split('/').map(Number);
-      const iso = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const officialM = (row.officialTimes || []).map(toMinsGlobal);
-      return [...new Set((byDay[iso] || []).map(mk => mk.horario.slice(0, 5)))]
+      return [...new Set(pcTimesOf(dateBR))]
         .filter(t => officialM.every(o => Math.abs(o - toMinsGlobal(t)) > 10));
     };
     Object.keys(rowsMap)
@@ -1146,13 +1211,12 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
 
         const [d, m, y2] = dateBR.split('/').map(Number);
         const dataISO = `${2000 + y2}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const pontoCertoTimes = (byDay[dataISO] || []).map(mk => mk.horario.slice(0, 5));
+        const pontoCertoTimes = pcTimesOf(dateBR);
 
         const isImpar = row.justificarLabel === 'Ímpar' || row.officialTimes.length === 0; // sem horário oficial: usa só o PontoCerto
         const officialM = row.officialTimes.map(toMinsGlobal);
-        const unionTimes = isImpar
-          ? [...new Set([...row.officialTimes, ...pontoCertoTimes])]
-          : [...new Set([...row.officialTimes, ...pontoCertoTimes.filter(t => officialM.every(o => Math.abs(o - toMinsGlobal(t)) > 10))])];
+        // Um horário seu a ≤10 min de um horário do relógio é o mesmo ponto (o do relógio prevalece).
+        const unionTimes = [...new Set([...row.officialTimes, ...pontoCertoTimes.filter(t => officialM.every(o => Math.abs(o - toMinsGlobal(t)) > 10))])];
         const allKnown = unionTimes
           .map(t => { const [h, min] = t.split(':').map(Number); return { t, mins: h * 60 + min }; })
           .sort((a, b) => a.mins - b.mins);
@@ -1214,8 +1278,24 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
               } else if (irregularPattern) {
                 pendingManual.push(`${dateBR} (padrão de marcações incomum — horários encontrados: ${allKnown.map(k => k.t).join(', ')} — confira manualmente)`);
               } else if (allKnown.length !== 2) {
-                pendingManual.push(`${dateBR} (${allKnown.length} horários conhecidos: ${allKnown.map(k => k.t).join(', ')} — fora do padrão esperado, usando só entrada/saída; confira manualmente)`);
+                pendingManual.push(`${dateBR} (${allKnown.length} horários conhecidos: ${allKnown.map(k => k.t).join(', ')} — número ímpar — falta uma marcação intermediária (saída ou volta de intervalo): lance no PontoCerto e reprocesse; saldo do RH mantido)`);
               }
+            }
+          }
+
+          // Com horários reais já conhecidos, o intervalo da Escala (ex.: jantar 17:30–18:30) ainda
+          // vale se ele cai DENTRO de um período trabalhado e nenhum intervalo conhecido passa por ele.
+          if (usedRealBreak && scheduleHasBreak && !irregularPattern) {
+            const eS = toMinsGlobal(daySchedule['intervalo-saida']);
+            const eR = toMinsGlobal(daySchedule['intervalo-retorno']);
+            const seqM = sequence.map(toMinsGlobal);
+            let overlapsKnownBreak = false, insideWorkedPeriod = false;
+            for (let i = 1; i + 1 < seqM.length; i += 2) if (seqM[i] < eR && seqM[i + 1] > eS) overlapsKnownBreak = true;
+            for (let i = 0; i + 1 < seqM.length; i += 2) if (seqM[i] <= eS && seqM[i + 1] >= eR) insideWorkedPeriod = true;
+            if (!overlapsKnownBreak && insideWorkedPeriod) {
+              sequence = [...sequence, daySchedule['intervalo-saida'], daySchedule['intervalo-retorno']]
+                .sort((a, b) => toMinsGlobal(a) - toMinsGlobal(b));
+              pendingManual.push(`${dateBR} (incluí o intervalo da Escala ${daySchedule['intervalo-saida']}–${daySchedule['intervalo-retorno']}, que não foi marcado; se não foi assim, ajuste as marcações)`);
             }
           }
 
@@ -1246,14 +1326,17 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
           // o sistema oficial só enxergou 1 marcação isolada quando calculou aquele número).
           // Só fazemos isso quando o padrão de marcações é confiável; em dias atípicos onde
           // não arriscamos um palpite de intervalo, mantemos o valor bruto do PDF.
-          const trustworthy = daySchedule && daySchedule.tipo === 'normal' && daySchedule.entrada && daySchedule.saida
-            && !irregularPattern && !sequenceTruncated;
+          const dayIsOff = !daySchedule || daySchedule.tipo !== 'normal' || (!daySchedule.entrada && !daySchedule.saida);
+          const confident = usedRealBreak || allKnown.length === 2; // nº ímpar (3, 5...) não recalcula
+          const trustworthy = confident && !irregularPattern && !sequenceTruncated
+            && (dayIsOff || (daySchedule.entrada && daySchedule.saida));
           if (trustworthy) {
             const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
-            const scheduledBreak = scheduleHasBreak
+            // dia fora da Escala (sábado/folga): nada era previsto, tudo que foi trabalhado é crédito
+            const scheduledBreak = (!dayIsOff && scheduleHasBreak)
               ? (toMin(daySchedule['intervalo-retorno']) - toMin(daySchedule['intervalo-saida']))
               : 0;
-            const scheduledWorked = (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
+            const scheduledWorked = dayIsOff ? 0 : (toMin(daySchedule.saida) - toMin(daySchedule.entrada)) - scheduledBreak;
 
             let actualBreak = sequence.length >= 4 ? 0 : assumedBreakMin;
             if (sequence.length >= 4) {
@@ -1265,10 +1348,27 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
 
             correctedSaldoByDate[dateBR] = actualWorked - scheduledWorked;
           }
-        } else {
+        } else if (!row.movedAway && !row.educorDay) {
           pendingManual.push(`${dateBR} (só ${allKnown.length} horário(s) conhecido(s) — registre a marcação que faltou no PontoCerto e reprocesse)`);
         }
       });
+
+    const educorCredited = [];
+    Object.keys(educorDays).forEach(dBR => {
+      const row = rowsMap[dBR];
+      if (!row) return;
+      if ((row.officialTimes || []).length > 0) {
+        pendingManual.push(`${dBR} (EDUCOR, mas o relógio tem marcações nesse dia — mantive o saldo do RH; confira)`);
+        return;
+      }
+      const ds = (currentProfile.schedule || {})[['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][new Date(brToISO(dBR) + 'T12:00:00').getDay()]];
+      if (ds && ds.tipo === 'normal' && ds.entrada && ds.saida) {
+        correctedSaldoByDate[dBR] = 0;
+        educorCredited.push(dBR);
+      } else {
+        pendingManual.push(`${dBR} (EDUCOR em dia sem jornada na Escala — nada a creditar)`);
+      }
+    });
 
     const savedBytes = await pdfLibDoc.save();
     const blob = new Blob([savedBytes], { type: 'application/pdf' });
@@ -1337,6 +1437,12 @@ document.getElementById('pdf-process-btn').addEventListener('click', async () =>
       : 'Nenhum Motivo foi preenchido automaticamente.';
     if (filledMarcacoes.length > 0) {
       statusMsg += ` Horários complementados (1ªMar+): ${filledMarcacoes.join(' | ')}.`;
+    }
+    if (educorCredited.length > 0) {
+      statusMsg += ` EDUCOR considerado como jornada completa da Escala (saldo 0) em: ${educorCredited.join(', ')}.`;
+    }
+    if (movedInfo.length > 0) {
+      statusMsg += ` Horários do relógio gravados em outra data: ${movedInfo.join('; ')} (confira).`;
     }
     if (pendingManual.length > 0) {
       statusMsg += ` Precisam de atenção manual: ${pendingManual.join('; ')}.`;

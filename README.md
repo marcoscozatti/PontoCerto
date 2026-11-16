@@ -93,6 +93,36 @@ planilha modelo de Carta de Compensação: data de hoje, nome/registro (de
 a carta pronta para assinar e entregar. **Processe o PDF do RH antes de usar
 esta seção.**
 
+## Horário gravado na data errada e dias fora da Escala
+
+- Se o relógio gravou um horário num dia (ex.: sexta 07:45) mas ele pertence ao dia
+  seguinte/anterior (ex.: sábado, onde você lançou 07:45 no PontoCerto), o app move
+  o horário para o dia certo, completa a folha e escreve uma nota no Motivo dos dois
+  dias. A tela avisa quais horários foram movidos. Só move quando o dia de origem não
+  tem marcação sua perto daquele horário.
+- Dia fora da Escala (sábado, folga): tudo o que foi trabalhado vira crédito no
+  Banco de Horas (intervalo: 15 min para 4h–6h, 1h acima de 6h, ou o real se você
+  lançou as marcações do intervalo).
+- Dia com número ímpar de horários conhecidos (3, 5...): o saldo NÃO é recalculado
+  (mantém o do RH) e o aviso pede a marcação que falta.
+- Se há horários reais e o intervalo da Escala (ex.: jantar 17:30–18:30) cai dentro de um
+  período trabalhado sem nenhum intervalo conhecido ali, o app o inclui e avisa na tela.
+- Um horário seu a até 10 min de um horário do relógio conta como o mesmo ponto.
+
+## EDUCOR / dia trabalhado fora do ponto
+
+Em Registrar Ponto (e na edição) existe a categoria **EDUCOR / dia trabalhado fora do
+ponto**. Lance uma marcação nessa categoria na data do dia (a hora dela é ignorada) com a
+descrição desejada. Ao processar o PDF: o Motivo é preenchido e, se o relógio não tem nenhuma
+marcação naquele dia, o dia é creditado como a jornada completa da Escala (saldo 0 no Banco
+de Horas). Se o relógio tem marcações no dia, o saldo do RH é mantido e a tela avisa.
+
+**Antes de usar**, rode no SQL Editor do Supabase (uma vez):
+```sql
+alter table public.marcacoes drop constraint if exists marcacoes_categoria_check;
+alter table public.marcacoes add constraint marcacoes_categoria_check check (categoria in ('entrada_antecipada','saida_antecipada','atraso','outro','educor'));
+```
+
 ## Possíveis próximos passos
 
 - Geolocalização real no botão "Marcar" (hoje o ícone é só visual).
