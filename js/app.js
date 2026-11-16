@@ -1017,7 +1017,7 @@ function planTwoTimeDay(entradaMin, saidaMin, daySchedule) {
   const escSaida = toMin(daySchedule['intervalo-saida']);
   const escRet = toMin(daySchedule['intervalo-retorno']);
   const escBreak = escRet - escSaida;
-  const fits = escSaida >= entradaMin && escRet <= saidaMin;
+  const fits = escSaida > entradaMin && escRet < saidaMin; // estritamente dentro: intervalo colado na entrada/saída não conta
   const scheduledSpan = (daySchedule.entrada && daySchedule.saida)
     ? toMin(daySchedule.saida) - toMin(daySchedule.entrada) : null;
 
