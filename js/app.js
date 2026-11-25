@@ -8,6 +8,9 @@ const CATEGORIA_LABEL = {
   entrada_antecipada: 'Entrada antecipada',
   saida_antecipada: 'Saída antecipada',
   atraso: 'Atraso',
+  saida_atrasada: 'Saída atrasada',
+  home_office: 'Home office',
+  justificativa_medica: 'Justificativa médica',
   outro: 'Outro',
   educor: 'EDUCOR / dia trabalhado fora do ponto'
 };
